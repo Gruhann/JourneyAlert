@@ -9,11 +9,149 @@ import {
   Platform,
   Alert,
   RefreshControl,
+  Animated,
+  SafeAreaView,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { getFromStorage, StorageKeys } from '../utils/storage';
+import * as Location from 'expo-location';
+import { getDistance } from 'geolib';
 
+// Progress Bar Component
+const TripProgressBar = ({ trip, currentLocation }) => {
+  const [progress] = useState(new Animated.Value(0));
+  const [progressPercent, setProgressPercent] = useState(0);
+
+  useEffect(() => {
+    if (trip && currentLocation) {
+      const totalDistance = getDistance(
+        { latitude: trip.currentLocation.latitude, longitude: trip.currentLocation.longitude },
+        { latitude: trip.selectedDestination.latitude, longitude: trip.selectedDestination.longitude }
+      );
+
+      const distanceCovered = getDistance(
+        { latitude: trip.currentLocation.latitude, longitude: trip.currentLocation.longitude },
+        { latitude: currentLocation.latitude, longitude: currentLocation.longitude }
+      );
+
+      const percent = Math.min((distanceCovered / totalDistance) * 100, 100);
+      setProgressPercent(percent);
+
+      Animated.spring(progress, {
+        toValue: percent / 100,
+        useNativeDriver: false,
+      }).start();
+    }
+  }, [currentLocation]);
+
+  return (
+    <View style={styles.progressContainer}>
+      <View style={styles.progressBackground}>
+        <Animated.View
+          style={[
+            styles.progressFill,
+            {
+              width: progress.interpolate({
+                inputRange: [0, 1],
+                outputRange: ['0%', '100%'],
+              }),
+            },
+          ]}
+        />
+      </View>
+      <View style={styles.progressLabels}>
+        <Icon name="location" size={20} color="#2196F3" />
+        <Text style={styles.progressText}>{Math.round(progressPercent)}% completed</Text>
+        <Icon name="flag" size={20} color="#4CAF50" />
+      </View>
+    </View>
+  );
+};
+
+// Active Trip Component
+const ActiveTrip = ({ trip, navigation }) => {
+  const [currentLocation, setCurrentLocation] = useState(null);
+  const [isTracking, setIsTracking] = useState(false);
+
+  useEffect(() => {
+    let locationSubscription;
+
+    const startLocationTracking = async () => {
+      if (trip?.status === 'active') {
+        setIsTracking(true);
+        
+        let { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          return;
+        }
+
+        locationSubscription = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.High,
+            timeInterval: 5000,
+            distanceInterval: 10,
+          },
+          (location) => {
+            setCurrentLocation(location.coords);
+          }
+        );
+      }
+    };
+
+    startLocationTracking();
+
+    return () => {
+      if (locationSubscription) {
+        locationSubscription.remove();
+      }
+    };
+  }, [trip?.status]);
+
+  if (!trip) return null;
+
+  return (
+    <TouchableOpacity 
+      style={styles.currentTripCard}
+      onPress={() => navigation.navigate('TripDetails', { trip })}
+    >
+      <View style={styles.currentTripHeader}>
+        <Text style={styles.currentTripTitle}>Current Trip</Text>
+        <View style={styles.statusBadge}>
+          <Text style={styles.statusText}>Active</Text>
+        </View>
+      </View>
+
+      <View style={styles.locationContainer}>
+        <Icon name="location" size={20} color="#2196F3" />
+        <Text style={styles.locationText}>From: {trip.origin.split(',')[0]}</Text>
+      </View>
+
+      <View style={styles.locationContainer}>
+        <Icon name="navigate" size={20} color="#4CAF50" />
+        <Text style={styles.locationText}>To: {trip.destination.split(',')[0]}</Text>
+      </View>
+
+      <View style={styles.tripMetrics}>
+        <View style={styles.metric}>
+          <Icon name="time" size={16} color="#666" />
+          <Text style={styles.metricText}>
+            {Math.round(trip.estimatedDuration)} mins
+          </Text>
+        </View>
+      </View>
+
+      {isTracking && currentLocation && (
+        <TripProgressBar
+          trip={trip}
+          currentLocation={currentLocation}
+        />
+      )}
+    </TouchableOpacity>
+  );
+};
+
+// Main Component
 export default function CurrentTripsScreen() {
   const navigation = useNavigation();
   const route = useRoute();
@@ -66,111 +204,32 @@ export default function CurrentTripsScreen() {
     }
   };
 
-  const renderCurrentTrip = () => {
-    if (!currentTrip) return null;
-
-    return (
-      <TouchableOpacity 
-        style={styles.currentTripCard}
-        onPress={() => navigation.navigate('TripDetails', { trip: currentTrip })}
-      >
-        <View style={styles.currentTripHeader}>
-          <Text style={styles.currentTripTitle}>Current Trip</Text>
-          <View style={styles.statusBadge}>
-            <Text style={styles.statusText}>Active</Text>
-          </View>
-        </View>
-
-        <View style={styles.tripInfo}>
-          <View style={styles.locationContainer}>
-            <Icon name="location" size={20} color="#2196F3" />
-            <Text style={styles.locationText} numberOfLines={1}>
-              From: {currentTrip.origin}
-            </Text>
-          </View>
-
-          <View style={styles.locationContainer}>
-            <Icon name="navigate" size={20} color="#4CAF50" />
-            <Text style={styles.locationText} numberOfLines={1}>
-              To: {currentTrip.destination}
-            </Text>
-          </View>
-
-          <View style={styles.tripMetrics}>
-            <View style={styles.metric}>
-              <Icon name="time" size={16} color="#666" />
-              <Text style={styles.metricText}>
-                Duration: {Math.round(currentTrip.estimatedDuration)} mins
-              </Text>
-            </View>
-            <View style={styles.metric}>
-              <Icon name="calendar" size={16} color="#666" />
-              <Text style={styles.metricText}>
-                Arrival: {new Date(currentTrip.estimatedArrivalTime).toLocaleTimeString()}
-              </Text>
-            </View>
-          </View>
-        </View>
-      </TouchableOpacity>
-    );
+  const handleNewTrip = () => {
+    if (currentTrip?.status === 'active') {
+      Alert.alert(
+        "Active Trip in Progress",
+        "You have an active trip. Please complete or cancel it before starting a new one.",
+        [{ text: "OK" }]
+      );
+    } else {
+      navigation.navigate('Home');
+    }
   };
 
-  const renderTripItem = ({ item }) => (
-    <TouchableOpacity 
-      style={styles.tripItem}
-      onPress={() => navigation.navigate('TripDetails', { trip: item })}
-    >
-      {/* Date and Time Header */}
-      <View style={styles.tripHeader}>
-        <Text style={styles.tripDate}>{item.date}</Text>
-        <Text style={styles.tripTime}>{item.time}</Text>
-      </View>
-
-      {/* Route Information */}
-      <View style={styles.tripRoute}>
-        <View style={styles.routeContainer}>
-          <Text style={styles.routeText}>
-            From - {item.origin.split(',')[0]} {/* Show only the first part of the address */}
-          </Text>
-          <Text style={styles.routeText}>
-            To - {item.destination.split(',')[0]} {/* Show only the first part of the address */}
-          </Text>
-        </View>
-        <Text style={styles.durationText}>
-          Time taken: {Math.round(item.estimatedDuration)} mins
-        </Text>
-      </View>
-
-      {/* Status Badge */}
-      <View style={[
-        styles.statusContainer,
-        { backgroundColor: item.status === 'active' ? '#E3F2FD' : '#E8F5E9' }
-      ]}>
-        <Text style={[
-          styles.statusText,
-          { color: item.status === 'active' ? '#1976D2' : '#388E3C' }
-        ]}>
-          {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
-        </Text>
-      </View>
-    </TouchableOpacity>
-  );
-
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>My Trips</Text>
         <TouchableOpacity 
           style={styles.newTripButton}
-          onPress={() => navigation.navigate('SetNewTrip')}
+          onPress={handleNewTrip}
         >
           <Icon name="add-circle" size={24} color="#2196F3" />
           <Text style={styles.newTripText}>New Trip</Text>
         </TouchableOpacity>
       </View>
 
-      <ScrollView 
-        style={styles.content}
+      <ScrollView
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -180,21 +239,42 @@ export default function CurrentTripsScreen() {
           />
         }
       >
-        {renderCurrentTrip()}
+        <View style={styles.content}>
+          <ActiveTrip trip={currentTrip} navigation={navigation} />
 
-        {recentTrips.length > 0 && (
-          <View style={styles.recentTripsSection}>
-            <Text style={styles.sectionTitle}>Recent Trips</Text>
-            <FlatList
-              data={recentTrips}
-              renderItem={renderTripItem}
-              keyExtractor={item => item.id}
-              scrollEnabled={false}
-            />
-          </View>
-        )}
+          {recentTrips.length > 0 && (
+            <View style={styles.recentTripsSection}>
+              <Text style={styles.sectionTitle}>Recent Trips</Text>
+              {recentTrips.map((trip) => (
+                <TouchableOpacity
+                  key={trip.id}
+                  style={styles.recentTripCard}
+                  onPress={() => navigation.navigate('TripDetails', { trip })}
+                >
+                  <View style={styles.recentTripHeader}>
+                    <Text style={styles.recentTripDate}>{trip.date}</Text>
+                    <View style={[styles.statusBadge, { backgroundColor: '#e8f5e9' }]}>
+                      <Text style={[styles.statusText, { color: '#4CAF50' }]}>
+                        {trip.status}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.tripInfo}>
+                    <Text style={styles.recentTripText} numberOfLines={1}>
+                      {trip.origin} → {trip.destination}
+                    </Text>
+                    <Text style={styles.durationText}>
+                      Duration: {trip.estimatedDuration}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+        </View>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -204,18 +284,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8f9fa',
   },
   header: {
-    backgroundColor: '#fff',
-    padding: 20,
-    paddingTop: Platform.OS === 'ios' ? 60 : 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   headerTitle: {
     fontSize: 24,
     fontWeight: 'bold',
+    color: '#333',
   },
   content: {
     flex: 1,
@@ -284,69 +369,62 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 12,
   },
-  tripRoute: {
-    marginTop: 8,
-    marginBottom: 8,
-  },
-  routeContainer: {
-    marginBottom: 4,
-  },
-  routeText: {
-    fontSize: 15,
-    color: '#333',
-    marginBottom: 2,
-  },
-  durationText: {
-    fontSize: 14,
-    color: '#666',
-    fontStyle: 'italic',
-  },
-  tripHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  tripDate: {
-    fontSize: 14,
-    color: '#666',
-  },
-  tripTime: {
-    fontSize: 14,
-    color: '#666',
-  },
-  tripItem: {
+  recentTripCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
-    padding: 16,
+    padding: 12,
     marginBottom: 12,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
   },
-  statusContainer: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginTop: 4,
+  recentTripHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
   },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '500',
+  recentTripDate: {
+    color: '#666',
+  },
+  recentTripText: {
+    fontSize: 16,
+    marginBottom: 4,
+  },
+  durationText: {
+    color: '#666',
+    fontSize: 14,
   },
   newTripButton: {
     flexDirection: 'row',
     alignItems: 'center',
+    padding: 8,
   },
   newTripText: {
     color: '#2196F3',
     marginLeft: 4,
     fontSize: 16,
     fontWeight: '500',
+  },
+  progressContainer: {
+    marginTop: 12,
+  },
+  progressBackground: {
+    height: 6,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#2196F3',
+    borderRadius: 3,
+  },
+  progressLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  progressText: {
+    fontSize: 12,
+    color: '#666',
   },
 }); 

@@ -8,8 +8,6 @@ import {
   TouchableOpacity,
   Text,
   Alert,
-  SafeAreaView,
-  Dimensions,
 } from 'react-native';
 import * as Location from 'expo-location';
 import MapView, { Marker } from 'react-native-maps';
@@ -31,46 +29,35 @@ export default function HomeScreen({ route }) {
   const [estimatedDuration, setEstimatedDuration] = useState(null);
   const [estimatedArrivalTime, setEstimatedArrivalTime] = useState(null);
   const [hasActiveTrip, setHasActiveTrip] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-
-  const loadInitialData = async () => {
-    // Get current location and address
-    let { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') {
-      setErrorMsg('Permission to access location was denied');
-      return;
-    }
-
-    let location = await Location.getCurrentPositionAsync({});
-    setLocation(location);
-    setCurrentLocation({
-      latitude: location.coords.latitude,
-      longitude: location.coords.longitude,
-    });
-
-    // Get address for current location
-    try {
-      const response = await fetch(
-        `https://maps.googleapis.com/maps/api/geocode/json?latlng=${location.coords.latitude},${location.coords.longitude}&key=${GOOGLE_MAPS_API_KEY}`
-      );
-      const data = await response.json();
-      if (data.results[0]) {
-        setOrigin(data.results[0].formatted_address);
-      }
-    } catch (error) {
-      console.error('Error getting address:', error);
-    }
-  };
-
-  // Add onRefresh handler
-  const onRefresh = React.useCallback(async () => {
-    setRefreshing(true);
-    await loadInitialData();
-    setRefreshing(false);
-  }, []);
 
   useEffect(() => {
-    loadInitialData();
+    (async () => {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setErrorMsg('Permission to access location was denied');
+        return;
+      }
+
+      let location = await Location.getCurrentPositionAsync({});
+      setLocation(location);
+      setCurrentLocation({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+      });
+
+      // Get address for current location
+      try {
+        const response = await fetch(
+          `https://maps.googleapis.com/maps/api/geocode/json?latlng=${location.coords.latitude},${location.coords.longitude}&key=${GOOGLE_MAPS_API_KEY}`
+        );
+        const data = await response.json();
+        if (data.results[0]) {
+          setOrigin(data.results[0].formatted_address);
+        }
+      } catch (error) {
+        console.error('Error getting address:', error);
+      }
+    })();
   }, []);
 
   // Add useEffect to handle incoming navigation params
@@ -166,7 +153,7 @@ export default function HomeScreen({ route }) {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <View style={styles.topSection}>
         <View style={styles.locationInputsContainer}>
           <View style={styles.locationInput}>
@@ -179,15 +166,17 @@ export default function HomeScreen({ route }) {
             />
           </View>
           
-          <View style={[styles.locationInput, { zIndex: 2 }]}>
+          <View style={styles.locationInput}>
             <Icon name="navigate" size={20} color="#4CAF50" />
             {route.params?.selectedLocation ? (
+              // Show selected location from saved locations
               <TextInput
                 style={styles.input}
                 value={destination}
                 editable={false}
               />
             ) : (
+              // Show Google Places Autocomplete
               <GooglePlacesAutocomplete
                 placeholder='Where to?'
                 onPress={(data, details = null) => {
@@ -205,50 +194,20 @@ export default function HomeScreen({ route }) {
                   types: 'establishment|geocode',
                 }}
                 styles={{
-                  container: {
-                    flex: 1,
-                    position: 'relative',
-                  },
-                  textInput: {
-                    height: 40,
-                    fontSize: 16,
-                    backgroundColor: 'transparent',
-                    marginLeft: 10,
-                  },
-                  listView: {
-                    position: 'absolute',
-                    top: 45,
-                    left: 0,
-                    right: 0,
-                    backgroundColor: 'white',
-                    borderRadius: 5,
-                    elevation: 3,
-                    zIndex: 1000,
-                  },
-                  row: {
-                    padding: 13,
-                    height: 44,
-                    flexDirection: 'row',
-                  },
-                  separator: {
-                    height: 0.5,
-                    backgroundColor: '#c8c7cc',
-                  },
+                  textInput: styles.autocompleteInput,
+                  container: { flex: 1 },
+                  listView: styles.suggestionList,
                 }}
                 fetchDetails={true}
                 enablePoweredByContainer={false}
-                minLength={2}
-                returnKeyType={'search'}
-                keyboardShouldPersistTaps='handled'
-                listViewDisplayed='auto'
               />
             )}
           </View>
         </View>
       </View>
 
-      {location && (
-        <View style={styles.mapContainer}>
+      <View style={styles.mapContainer}>
+        {location && (
           <MapView
             style={styles.map}
             initialRegion={{
@@ -276,9 +235,10 @@ export default function HomeScreen({ route }) {
               />
             )}
           </MapView>
-        </View>
-      )}
+        )}
+      </View>
 
+      {/* Show Start button if we have a destination (either from saved location or search) */}
       {selectedDestination && estimatedArrivalTime && (
         <TouchableOpacity 
           style={styles.reminderButton} 
@@ -289,7 +249,7 @@ export default function HomeScreen({ route }) {
           </Text>
         </TouchableOpacity>
       )}
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -312,14 +272,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
-    zIndex: 999,
+    zIndex: 1,
   },
   locationInputsContainer: {
     backgroundColor: '#f8f8f8',
     borderRadius: 12,
     padding: 15,
     marginBottom: 15,
-    zIndex: 998,
   },
   locationInput: {
     flexDirection: 'row',
@@ -328,22 +287,36 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 10,
     marginBottom: 10,
-    minHeight: 44,
+    zIndex: 1000,
+    elevation: 1000,
   },
   input: {
     flex: 1,
     marginLeft: 10,
     fontSize: 16,
-    height: 40,
+  },
+  autocompleteInput: {
+    flex: 1,
+    fontSize: 16,
+    backgroundColor: 'transparent',
+    marginLeft: 10,
+  },
+  suggestionList: {
+    position: 'absolute',
+    top: 45,
+    left: 0,
+    right: 0,
+    backgroundColor: 'white',
+    borderRadius: 5,
+    elevation: 3,
+    zIndex: 1000,
   },
   mapContainer: {
     flex: 1,
-    height: Dimensions.get('window').height * 0.5,
-    zIndex: 1,
+    zIndex: 0,
   },
   map: {
-    width: '100%',
-    height: '100%',
+    flex: 1,
   },
   reminderButton: {
     backgroundColor: '#2196F3',
@@ -351,7 +324,6 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: 'center',
     margin: 20,
-    zIndex: 1,
   },
   reminderButtonText: {
     color: '#fff',

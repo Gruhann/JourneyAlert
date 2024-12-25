@@ -18,13 +18,24 @@ import LoadingSpinner from '../components/LoadingSpinner';
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
 
-const HomeStack = () => (
-  <Stack.Navigator screenOptions={{ headerShown: false }}>
-    <Stack.Screen name="CurrentTrips" component={CurrentTripsScreen} />
-    <Stack.Screen name="SetNewTrip" component={HomeScreen} />
-    <Stack.Screen name="TripDetails" component={TripDetailsScreen} />
-  </Stack.Navigator>
-);
+function HomeStack() {
+  return (
+    <Stack.Navigator>
+      <Stack.Screen 
+        name="CurrentTrips" 
+        component={CurrentTripsScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen 
+        name="Home" 
+        component={HomeScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen name="SetNewTrip" component={HomeScreen} />
+      <Stack.Screen name="TripDetails" component={TripDetailsScreen} />
+    </Stack.Navigator>
+  );
+}
 
 const TabNavigator = () => (
   <Tab.Navigator
