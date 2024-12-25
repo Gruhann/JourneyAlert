@@ -6,14 +6,85 @@ import {
   TouchableOpacity,
   ScrollView,
   Platform,
+  Alert,
 } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import Icon from 'react-native-vector-icons/Ionicons';
 import MapViewDirections from 'react-native-maps-directions';
 import { GOOGLE_MAPS_API_KEY } from '../utils/constants';
+import { saveToStorage, getFromStorage, StorageKeys } from '../utils/storage';
 
 export default function TripDetailsScreen({ route, navigation }) {
   const { trip } = route.params;
+
+  const handleSaveLocation = () => {
+    Alert.alert(
+      "Save Location",
+      "Which location would you like to save?",
+      [
+        {
+          text: "Origin",
+          onPress: () => saveLocation(trip.origin, trip.currentLocation),
+        },
+        {
+          text: "Destination",
+          onPress: () => saveLocation(trip.destination, trip.selectedDestination),
+        },
+        {
+          text: "Cancel",
+          style: "cancel"
+        }
+      ]
+    );
+  };
+
+  const saveLocation = async (name, coordinates) => {
+    try {
+      const savedLocations = await getFromStorage(StorageKeys.SAVED_LOCATIONS) || [];
+      const newLocation = {
+        id: Date.now().toString(),
+        name,
+        address: name,
+        coordinates,
+        type: 'custom',
+      };
+
+      const updatedLocations = [...savedLocations, newLocation];
+      await saveToStorage(StorageKeys.SAVED_LOCATIONS, updatedLocations);
+
+      Alert.alert(
+        "Success",
+        "Location saved successfully!",
+        [{ text: "OK" }]
+      );
+    } catch (error) {
+      Alert.alert("Error", "Failed to save location");
+    }
+  };
+
+  const handleSetTripAsReached = async () => {
+    try {
+      const completedTrip = {
+        ...trip,
+        status: 'completed',
+      };
+
+      // Save the updated trip status to AsyncStorage
+      const tripHistory = await getFromStorage(StorageKeys.TRIP_HISTORY) || [];
+      const updatedHistory = tripHistory.map(item => 
+        item.id === trip.id ? completedTrip : item
+      );
+      await saveToStorage(StorageKeys.TRIP_HISTORY, updatedHistory);
+
+      // Optionally, clear the active trip if needed
+      await saveToStorage(StorageKeys.ACTIVE_TRIP, null);
+
+      Alert.alert("Success", "Trip marked as reached!");
+      navigation.goBack(); // Navigate back to the previous screen
+    } catch (error) {
+      Alert.alert("Error", "Failed to mark trip as reached");
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -88,6 +159,24 @@ export default function TripDetailsScreen({ route, navigation }) {
           </View>
         </View>
       </ScrollView>
+
+      <View style={styles.buttonContainer}>
+        <TouchableOpacity 
+          style={styles.saveButton}
+          onPress={handleSaveLocation}
+        >
+          <Icon name="bookmark" size={20} color="#fff" />
+          <Text style={styles.saveButtonText}>Save Location</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.reachedButton}
+          onPress={handleSetTripAsReached}
+        >
+          <Icon name="checkmark" size={20} color="#fff" />
+          <Text style={styles.reachedButtonText}>Set Trip as Reached</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -149,5 +238,42 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     marginTop: 2,
+  },
+  buttonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    margin: 16,
+  },
+  saveButton: {
+    flexDirection: 'row',
+    backgroundColor: '#4CAF50',
+    padding: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
+    marginRight: 8,
+  },
+  saveButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginLeft: 8,
+  },
+  reachedButton: {
+    flexDirection: 'row',
+    backgroundColor: '#2196F3',
+    padding: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
+    marginLeft: 8,
+  },
+  reachedButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginLeft: 8,
   },
 }); 

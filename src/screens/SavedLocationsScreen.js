@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -6,30 +6,32 @@ import {
   FlatList,
   TouchableOpacity,
   Alert,
+  RefreshControl,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import Header from '../components/Header';
+import { saveToStorage, getFromStorage, StorageKeys } from '../utils/storage';
 
 export default function SavedLocationsScreen({ navigation }) {
-  const [savedLocations, setSavedLocations] = useState([
-    {
-      id: '1',
-      name: 'Home',
-      address: '123 Home Street, City',
-      type: 'home',
-      coordinates: { latitude: 37.7749, longitude: -122.4194 },
-    },
-    {
-      id: '2',
-      name: 'Work',
-      address: '456 Office Avenue, City',
-      type: 'work',
-      coordinates: { latitude: 37.7749, longitude: -122.4194 },
-    },
-    // Add more saved locations as needed
-  ]);
+  const [savedLocations, setSavedLocations] = useState([]);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const handleDeleteLocation = (id) => {
+  const loadSavedLocations = async () => {
+    const locations = await getFromStorage(StorageKeys.SAVED_LOCATIONS) || [];
+    setSavedLocations(locations);
+  };
+
+  const onRefresh = React.useCallback(async () => {
+    setRefreshing(true);
+    await loadSavedLocations();
+    setRefreshing(false);
+  }, []);
+
+  useEffect(() => {
+    loadSavedLocations();
+  }, []);
+
+  const handleDeleteLocation = async (id) => {
     Alert.alert(
       "Delete Location",
       "Are you sure you want to delete this saved location?",
@@ -40,10 +42,12 @@ export default function SavedLocationsScreen({ navigation }) {
         },
         {
           text: "Delete",
-          onPress: () => {
-            setSavedLocations(current =>
-              current.filter(location => location.id !== id)
+          onPress: async () => {
+            const updatedLocations = savedLocations.filter(
+              location => location.id !== id
             );
+            await saveToStorage(StorageKeys.SAVED_LOCATIONS, updatedLocations);
+            setSavedLocations(updatedLocations);
           },
           style: "destructive"
         }
@@ -51,10 +55,19 @@ export default function SavedLocationsScreen({ navigation }) {
     );
   };
 
+  const handleNavigate = (location) => {
+    // Navigate to Home with the selected location details
+    navigation.navigate('Home', { 
+      destination: location.coordinates,
+      selectedLocation: location,
+      addingNewLocation: false // Indicate that we are not adding a new location
+    });
+  };
+
   const renderItem = ({ item }) => (
     <TouchableOpacity 
       style={styles.locationItem}
-      onPress={() => navigation.navigate('Home', { selectedLocation: item })}
+      onPress={() => handleNavigate(item)} // Navigate on item press
     >
       <View style={styles.locationInfo}>
         <Icon 
@@ -70,9 +83,7 @@ export default function SavedLocationsScreen({ navigation }) {
       
       <View style={styles.actionButtons}>
         <TouchableOpacity 
-          onPress={() => navigation.navigate('Home', { 
-            destination: item.coordinates 
-          })}
+          onPress={() => handleNavigate(item)} // Navigate on button press
           style={styles.actionButton}
         >
           <Icon name="navigate" size={20} color="#4CAF50" />
@@ -98,6 +109,14 @@ export default function SavedLocationsScreen({ navigation }) {
           renderItem={renderItem}
           keyExtractor={item => item.id}
           contentContainerStyle={styles.listContainer}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={["#2196F3"]}
+              tintColor="#2196F3"
+            />
+          }
         />
       ) : (
         <View style={styles.emptyContainer}>

@@ -7,33 +7,64 @@ import {
   ScrollView,
   FlatList,
   Platform,
+  Alert,
+  RefreshControl,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import { getFromStorage, StorageKeys } from '../utils/storage';
 
 export default function CurrentTripsScreen() {
   const navigation = useNavigation();
   const route = useRoute();
   const [currentTrip, setCurrentTrip] = useState(null);
-  const [recentTrips, setRecentTrips] = useState([
-    // Sample data - replace with actual data from storage
-    {
-      id: '1',
-      origin: 'Home',
-      destination: 'Work',
-      estimatedDuration: '30 mins',
-      status: 'completed',
-      date: '2024-02-20',
-    },
-    // Add more recent trips...
-  ]);
+  const [recentTrips, setRecentTrips] = useState([]);
+  const [refreshing, setRefreshing] = useState(false);
 
-  // Update currentTrip when new tripDetails arrive
+  // Load trips from AsyncStorage
+  const loadTrips = async () => {
+    const activeTrip = await getFromStorage(StorageKeys.ACTIVE_TRIP);
+    const recentTrips = await getFromStorage(StorageKeys.TRIP_HISTORY) || [];
+    
+    setCurrentTrip(activeTrip);
+    setRecentTrips(recentTrips);
+  };
+
+  // Add onRefresh handler
+  const onRefresh = React.useCallback(async () => {
+    setRefreshing(true);
+    await loadTrips();
+    setRefreshing(false);
+  }, []);
+
+  useEffect(() => {
+    loadTrips();
+  }, []);
+
+  // Update useEffect to handle new trips
   useEffect(() => {
     if (route.params?.tripDetails) {
       setCurrentTrip(route.params.tripDetails);
+      // Add to recent trips if it's a completed trip
+      if (route.params.tripDetails.status === 'completed') {
+        setRecentTrips(prev => [route.params.tripDetails, ...prev]);
+      }
     }
   }, [route.params?.tripDetails]);
+
+  // Add function to complete trip
+  const handleCompleteTrip = () => {
+    if (currentTrip) {
+      const completedTrip = {
+        ...currentTrip,
+        status: 'completed'
+      };
+      // Add to recent trips
+      setRecentTrips(prev => [completedTrip, ...prev]);
+      // Clear current trip
+      setCurrentTrip(null);
+    }
+  };
 
   const renderCurrentTrip = () => {
     if (!currentTrip) return null;
@@ -84,26 +115,42 @@ export default function CurrentTripsScreen() {
     );
   };
 
-  const renderRecentTrip = ({ item }) => (
+  const renderTripItem = ({ item }) => (
     <TouchableOpacity 
-      style={styles.recentTripCard}
+      style={styles.tripItem}
       onPress={() => navigation.navigate('TripDetails', { trip: item })}
     >
-      <View style={styles.recentTripHeader}>
-        <Text style={styles.recentTripDate}>{item.date}</Text>
-        <View style={[styles.statusBadge, { backgroundColor: '#e8f5e9' }]}>
-          <Text style={[styles.statusText, { color: '#4CAF50' }]}>
-            {item.status}
-          </Text>
-        </View>
+      {/* Date and Time Header */}
+      <View style={styles.tripHeader}>
+        <Text style={styles.tripDate}>{item.date}</Text>
+        <Text style={styles.tripTime}>{item.time}</Text>
       </View>
 
-      <View style={styles.tripInfo}>
-        <Text style={styles.recentTripText} numberOfLines={1}>
-          {item.origin} → {item.destination}
-        </Text>
+      {/* Route Information */}
+      <View style={styles.tripRoute}>
+        <View style={styles.routeContainer}>
+          <Text style={styles.routeText}>
+            From - {item.origin.split(',')[0]} {/* Show only the first part of the address */}
+          </Text>
+          <Text style={styles.routeText}>
+            To - {item.destination.split(',')[0]} {/* Show only the first part of the address */}
+          </Text>
+        </View>
         <Text style={styles.durationText}>
-          Duration: {item.estimatedDuration}
+          Time taken: {Math.round(item.estimatedDuration)} mins
+        </Text>
+      </View>
+
+      {/* Status Badge */}
+      <View style={[
+        styles.statusContainer,
+        { backgroundColor: item.status === 'active' ? '#E3F2FD' : '#E8F5E9' }
+      ]}>
+        <Text style={[
+          styles.statusText,
+          { color: item.status === 'active' ? '#1976D2' : '#388E3C' }
+        ]}>
+          {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
         </Text>
       </View>
     </TouchableOpacity>
@@ -122,18 +169,30 @@ export default function CurrentTripsScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content}>
+      <ScrollView 
+        style={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={["#2196F3"]}
+            tintColor="#2196F3"
+          />
+        }
+      >
         {renderCurrentTrip()}
 
-        <View style={styles.recentTripsSection}>
-          <Text style={styles.sectionTitle}>Recent Trips</Text>
-          <FlatList
-            data={recentTrips}
-            renderItem={renderRecentTrip}
-            keyExtractor={item => item.id}
-            scrollEnabled={false}
-          />
-        </View>
+        {recentTrips.length > 0 && (
+          <View style={styles.recentTripsSection}>
+            <Text style={styles.sectionTitle}>Recent Trips</Text>
+            <FlatList
+              data={recentTrips}
+              renderItem={renderTripItem}
+              keyExtractor={item => item.id}
+              scrollEnabled={false}
+            />
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -225,28 +284,60 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 12,
   },
-  recentTripCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 12,
-  },
-  recentTripHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  tripRoute: {
+    marginTop: 8,
     marginBottom: 8,
   },
-  recentTripDate: {
-    color: '#666',
-  },
-  recentTripText: {
-    fontSize: 16,
+  routeContainer: {
     marginBottom: 4,
   },
+  routeText: {
+    fontSize: 15,
+    color: '#333',
+    marginBottom: 2,
+  },
   durationText: {
-    color: '#666',
     fontSize: 14,
+    color: '#666',
+    fontStyle: 'italic',
+  },
+  tripHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  tripDate: {
+    fontSize: 14,
+    color: '#666',
+  },
+  tripTime: {
+    fontSize: 14,
+    color: '#666',
+  },
+  tripItem: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+  },
+  statusContainer: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginTop: 4,
+  },
+  statusText: {
+    fontSize: 12,
+    fontWeight: '500',
   },
   newTripButton: {
     flexDirection: 'row',

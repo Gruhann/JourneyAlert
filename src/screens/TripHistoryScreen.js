@@ -1,83 +1,111 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   View,
   Text,
   FlatList,
   TouchableOpacity,
-  Image,
+  Alert,
+  RefreshControl,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import Header from '../components/Header';
+import { saveToStorage, getFromStorage, StorageKeys } from '../utils/storage';
+import { Swipeable } from 'react-native-gesture-handler';
 
 export default function TripHistoryScreen({ navigation }) {
-  const [trips, setTrips] = useState([
-    {
-      id: '1',
-      from: 'Home',
-      to: 'Work',
-      date: '2024-02-20',
-      time: '09:30 AM',
-      duration: '25 mins',
-      status: 'completed',
-    },
-    {
-      id: '2',
-      from: 'Work',
-      to: 'Gym',
-      date: '2024-02-19',
-      time: '06:00 PM',
-      duration: '15 mins',
-      status: 'completed',
-    },
-    // Add more trip history as needed
-  ]);
+  const [trips, setTrips] = useState([]);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadTripHistory = async () => {
+    const history = await getFromStorage(StorageKeys.TRIP_HISTORY) || [];
+    setTrips(history);
+  };
+
+  const onRefresh = React.useCallback(async () => {
+    setRefreshing(true);
+    await loadTripHistory();
+    setRefreshing(false);
+  }, []);
+
+  useEffect(() => {
+    loadTripHistory();
+  }, []);
+
+  const deleteTrip = async (id) => {
+    const updatedTrips = trips.filter(trip => trip.id !== id);
+    await saveToStorage(StorageKeys.TRIP_HISTORY, updatedTrips);
+    setTrips(updatedTrips);
+    Alert.alert("Success", "Trip deleted successfully!");
+  };
 
   const renderItem = ({ item }) => (
-    <TouchableOpacity 
-      style={styles.tripItem}
-      onPress={() => navigation.navigate('TripDetail', { trip: item })}
+    <Swipeable
+      renderRightActions={() => (
+        <TouchableOpacity
+          style={styles.deleteButton}
+          onPress={() => {
+            Alert.alert(
+              "Delete Trip",
+              "Are you sure you want to delete this trip?",
+              [
+                { text: "Cancel", style: "cancel" },
+                { text: "Delete", onPress: () => deleteTrip(item.id), style: "destructive" }
+              ]
+            );
+          }}
+        >
+          <Icon name="trash" size={24} color="#fff" />
+        </TouchableOpacity>
+      )}
     >
-      <View style={styles.tripHeader}>
-        <Text style={styles.tripDate}>{item.date}</Text>
-        <Text style={styles.tripTime}>{item.time}</Text>
-      </View>
-
-      <View style={styles.tripRoute}>
-        <View style={styles.locationContainer}>
-          <Icon name="location" size={20} color="#2196F3" />
-          <Text style={styles.locationText}>{item.from}</Text>
+      <TouchableOpacity 
+        style={styles.tripItem}
+        onPress={() => navigation.navigate('TripDetails', { trip: item })}
+      >
+        <View style={styles.tripHeader}>
+          <Text style={styles.tripDate}>{item.date}</Text>
+          <Text style={styles.tripTime}>{item.time}</Text>
         </View>
 
-        <View style={styles.routeLine}>
-          <Icon name="arrow-down" size={20} color="#666" />
+        <View style={styles.tripRoute}>
+          <View style={styles.locationContainer}>
+            <Icon name="location" size={20} color="#2196F3" />
+            <Text style={styles.locationText}>{item.origin}</Text>
+          </View>
+
+          <View style={styles.routeLine}>
+            <Icon name="arrow-down" size={20} color="#666" />
+          </View>
+
+          <View style={styles.locationContainer}>
+            <Icon name="location" size={20} color="#4CAF50" />
+            <Text style={styles.locationText}>{item.destination}</Text>
+          </View>
         </View>
 
-        <View style={styles.locationContainer}>
-          <Icon name="location" size={20} color="#4CAF50" />
-          <Text style={styles.locationText}>{item.to}</Text>
-        </View>
-      </View>
+        <View style={styles.tripFooter}>
+          <View style={styles.durationContainer}>
+            <Icon name="time" size={16} color="#666" />
+            <Text style={styles.durationText}>
+              {Math.round(item.estimatedDuration)} mins
+            </Text>
+          </View>
 
-      <View style={styles.tripFooter}>
-        <View style={styles.durationContainer}>
-          <Icon name="time" size={16} color="#666" />
-          <Text style={styles.durationText}>{item.duration}</Text>
-        </View>
-
-        <View style={[
-          styles.statusContainer,
-          { backgroundColor: item.status === 'completed' ? '#e8f5e9' : '#fff3e0' }
-        ]}>
-          <Text style={[
-            styles.statusText,
-            { color: item.status === 'completed' ? '#4CAF50' : '#FF9800' }
+          <View style={[
+            styles.statusContainer,
+            { backgroundColor: item.status === 'completed' ? '#e8f5e9' : '#fff3e0' }
           ]}>
-            {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
-          </Text>
+            <Text style={[
+              styles.statusText,
+              { color: item.status === 'completed' ? '#4CAF50' : '#FF9800' }
+            ]}>
+              {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
+            </Text>
+          </View>
         </View>
-      </View>
-    </TouchableOpacity>
+      </TouchableOpacity>
+    </Swipeable>
   );
 
   return (
@@ -90,6 +118,14 @@ export default function TripHistoryScreen({ navigation }) {
           renderItem={renderItem}
           keyExtractor={item => item.id}
           contentContainerStyle={styles.listContainer}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={["#2196F3"]}
+              tintColor="#2196F3"
+            />
+          }
         />
       ) : (
         <View style={styles.emptyContainer}>
@@ -184,5 +220,13 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: 16,
     color: '#666',
+  },
+  deleteButton: {
+    backgroundColor: 'red',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 80,
+    height: '100%',
+    borderRadius: 12,
   },
 }); 
